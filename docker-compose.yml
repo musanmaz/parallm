@@ -1,0 +1,52 @@
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    env_file: .env
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "2"]
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: multi_llm
+      POSTGRES_PASSWORD: multi_llm_secret
+      POSTGRES_DB: multi_llm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U multi_llm -d multi_llm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgres://multi_llm:multi_llm_secret@postgres:5432/multi_llm"
+      LITELLM_BASE_URL: "http://litellm:4000"
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY}"
+      JWT_SECRET: "${JWT_SECRET}"
+      INITIAL_PASSWORD: "${INITIAL_PASSWORD}"
+      SEED_USERS: "${SEED_USERS:-user1,user2}"
+      COOKIE_NAME: "multi_llm_session"
+      COOKIE_MAX_AGE_SECONDS: "604800"
+    ports:
+      - "3005:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      litellm:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
